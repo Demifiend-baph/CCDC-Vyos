@@ -1,0 +1,63 @@
+vyos@vyos:~$ cat > /config/scripts/ccdc.sh << 'EOF'
+#!/bin/bash
+# /config/scripts/ccdc.sh
+# usage: sudo ccdc.sh harden | freeze | check | status | revert
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Run with sudo: sudo /config/scripts/ccdc.sh $1"
+  exit 1
+fi
+
+CFG=/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper
+GOLDEN=/config/golden.boot
+GOLDENSET=/config/golden.set
+HASHFILE=/config/golden.sha256
+
+case "$1" in
+
+  harden)
+    $CFG begin
+    $CFG set system syslog host 172.16.101.100 facility all level info
+    $CFG set system flow-accounting interface eth1
+    $CFG set system flow-accounting interface eth2
+    $CFG set system flow-accounting netflow server 172.16.101.100 port 2055
+    $CFG set system login banner pre-login "Authorized access only - monitored"
+    $CFG commit
+    $CFG save
+    $CFG end
+    echo "harden complete"
+    ;;
+
+  freeze)
+    cp /config/config.boot "$GOLDEN" && echo "golden frozen"
+    show configuration commands > "$GOLDENSET"
+    sha256sum "$GOLDEN" | awk '{print $1}' > "$HASHFILE"
+    echo "hash: $(cat $HASHFILE)  <-- record this off-box"
+    ;;
+
+  check)
+    show configuration commands > /tmp/now.txt
+    echo "--- changes since last freeze ---"
+    diff "$GOLDENSET" /tmp/now.txt && echo "no changes"
+    ;;
+
+  status)
+    echo "live:     $(sha256sum /config/config.boot | awk '{print $1}')"
+    echo "golden:   $(sha256sum $GOLDEN | awk '{print $1}')"
+    echo "recorded: $(cat $HASHFILE)"
+    ;;
+
+  revert)
+    if [ "$(sha256sum $GOLDEN | awk '{print $1}')" = "$(cat $HASHFILE)" ]; then
+      cp "$GOLDEN" /config/config.boot && reboot
+    else
+      echo "HASH MISMATCH - do not revert. Use GRUB image fallback."
+    fi
+    ;;
+
+  *)
+    echo "usage: sudo ccdc.sh harden | freeze | check | status | revert"
+    ;;
+esac
+EOF
+chmod +x /config/scripts/ccdc.sh
