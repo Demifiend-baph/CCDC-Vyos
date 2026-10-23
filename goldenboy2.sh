@@ -1,21 +1,25 @@
 #!/bin/bash
-# goldenboy2.sh - VyOS toolkit (Midwest Invitational build)
+# goldenboy2.sh - VyOS toolkit (2026 MW Invitational build)
 # usage: goldenboy2.sh harden|baseline|freeze|check|watch|evidence|status|revert
 # sudo ONLY for revert. Everything else runs as plain vyos.
 #
-# EDIT ME BEFORE GAME DAY --------------------------------------------
-SPLUNK=172.16.101.100        # syslog host + netflow collector IP
-IF_INTERNAL=eth1             # side toward 172.16.0.254/24 (confirm name)
-IF_WORKSTATION=eth2          # side toward 172.17.0.1/24 (confirm name)
-# ---------------------------------------------------------------------
+# EDIT ME (game day: confirm eth names with 'show interfaces') ------------
+SPLUNK=172.20.240.20       # Debian Splunk - syslog + netflow collector
+IF_INTERNAL=eth1           # transit toward Palo Alto 172.16.0.254/24
+IF_WORKSTATION=eth2        # Kali side 172.17.0.1/24
+# external side is 172.31.20+team#.2/29 - not flow-monitored, do not edit
+# --------------------------------------------------------------------------
 #
-# RULES BAKED IN:
-#  - harden NEVER touches firewall/NAT: ICMP stays up (ping is scored)
-#  - no user renames, no IP/hostname changes (scoring depends on them)
-#  - for risky MANUAL changes use: commit-confirm 5 ... then confirm
-#  - revert reboots the router (~60s): ALL paths drop. Panic button only,
-#    not for "I typo'd a route." Fix those surgically or via commit-confirm.
+# RULES BAKED IN (from team pack + captain's doc):
+#  - harden NEVER touches firewall/NAT: ICMP must stay up (Competition
+#    Play rule 12: maintain ICMP on router/firewall)
+#  - no user renames, no IP/hostname changes (Systems rules 6-7; scoring
+#    depends on them)
+#  - risky MANUAL changes: commit-confirm 5 ... test ... confirm ... save
+#  - revert reboots ~60s: ALL paths drop. Panic button only.
+#    Typo'd route? commit-confirm, or fix surgically.
 #  - re-freeze after any approved inject change, or revert undoes it.
+#  - NO snapshots exist (Systems rule 10). golden IS the only rewind.
 
 CFG=/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper
 G=/config/golden.boot
@@ -77,9 +81,9 @@ case "$1" in
     ;;
 
   watch)
-    # Route drift detector. Run by hand, or schedule via task-scheduler
-    # every 15 min. Unexpected static/default routes = top persistence
-    # indicator. Read-only, safe to run constantly.
+    # Route drift detector. Unexpected static/default routes = top
+    # persistence indicator. Schedule via task-scheduler every 15 min,
+    # or run by hand. Read-only.
     ip route > /tmp/route.now
     if [ -f /config/route.last ]; then
       if ! diff -q /config/route.last /tmp/route.now > /dev/null; then
@@ -97,7 +101,7 @@ case "$1" in
     ;;
 
   evidence)
-    # IR bundle: capture before you remediate. Hash it. Copy off-box.
+    # IR bundle: capture BEFORE remediating. Hash it. Copy off-box.
     E=/config/evidence-$TS.tar.gz
     tar czf $E /config/config.boot /config/golden.boot \
                /config/route-watch.log /var/log/syslog 2>/dev/null
